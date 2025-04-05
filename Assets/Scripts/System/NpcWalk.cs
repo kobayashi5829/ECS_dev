@@ -1,22 +1,30 @@
-using UnityEngine;
 using Unity.Entities;
 using Unity.Transforms;
+using Unity.Mathematics;
+using Unity.Burst;
 using Agent;
 
 namespace System
 {
     public partial struct NpcWalk : ISystem
     {
+        [BurstCompile]
         public void OnUpdate(ref SystemState state)
         {
-            var deltaTime = SystemAPI.Time.DeltaTime;
+            var job = new UpdateJob() { DeltaTime = SystemAPI.Time.DeltaTime };
+            job.ScheduleParallel();
+        }
 
-            foreach (var (npc, walker, localTransform) in SystemAPI.Query<
-                RefRO<Npc>,
-                RefRO<Walker>,
-                RefRW<LocalTransform>>())
+        public partial struct UpdateJob : IJobEntity
+        {
+            public float DeltaTime;
+
+            public void Execute(in Npc npc, in Walker walker, ref LocalTransform transform)
             {
-                localTransform.ValueRW.Position.x += deltaTime * walker.ValueRO.Speed;
+                var rotate = quaternion.RotateY(DeltaTime);
+                var forward = math.mul(rotate, transform.Forward());
+                transform.Position += forward * walker.Speed * DeltaTime;
+                transform.Rotation = quaternion.LookRotation(forward, transform.Up());
             }
         }
     }
