@@ -3,6 +3,7 @@ using Unity.Burst;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.NetCode;
+using Spawner;
 
 namespace System
 {
@@ -28,6 +29,7 @@ namespace System
         [BurstCompile]
         public void OnCreate(ref SystemState state)
         {
+            state.RequireForUpdate<CubeSpawner>();
             var builder = new EntityQueryBuilder(Allocator.Temp)
                 .WithAll<NetworkId>()
                 .WithNone<NetworkStreamInGame>();
@@ -57,6 +59,7 @@ namespace System
             [BurstCompile]
             public void OnCreate(ref SystemState state)
             {
+                state.RequireForUpdate<CubeSpawner>();
                 var builder = new EntityQueryBuilder(Allocator.Temp)
                     .WithAll<GoInGameRequest>()
                     .WithAll<ReceiveRpcCommandRequest>();
@@ -67,14 +70,19 @@ namespace System
             [BurstCompile]
             public void OnUpdate(ref SystemState state)
             {
-                var worldName = state.WorldUnmanaged.Name;
+                var prefab = SystemAPI.GetSingleton<CubeSpawner>().Cube;
+                state.EntityManager.GetName(prefab, out var prefabName);
+                var worldName = new FixedString32Bytes(state.WorldUnmanaged.Name);
                 var commandBuffer = new EntityCommandBuffer(Allocator.Temp);
                 networkIdFromEntity.Update(ref state);
                 foreach (var (reqSrc, reqEntity) in SystemAPI.Query<RefRO<ReceiveRpcCommandRequest>>().WithAll<GoInGameRequest>().WithEntityAccess())
                 {
                     commandBuffer.AddComponent<NetworkStreamInGame>(reqSrc.ValueRO.SourceConnection);
                     var networkId = networkIdFromEntity[reqSrc.ValueRO.SourceConnection];
-                    Debug.Log($"'{worldName}' setting connection '{networkId.Value}' to in game");
+                    Debug.Log($"'{worldName}' setting connection '{networkId.Value}' to in game, spawning a Ghost '{prefabName}' for item!");
+                    var player = commandBuffer.Instantiate(prefab);
+                    commandBuffer.SetComponent(player, new GhostOwner { NetworkId = networkId.Value });
+                    commandBuffer.AppendToBuffer(reqSrc.ValueRO.SourceConnection, new LinkedEntityGroup { Value = player });
                     commandBuffer.DestroyEntity(reqEntity);
                 }
                 commandBuffer.Playback(state.EntityManager);
